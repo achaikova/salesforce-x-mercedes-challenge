@@ -291,7 +291,7 @@ class RetrieveTeamState(TypedDict):
 ### Set up agents
 supervisor_agent = create_team_supervisor(
     llm,
-    supervisor_system_prompt,
+    system_prompt, ##todo: change prompt
     ["retrieve_data_from_database", 'initiate_a_conversation_with_a_client'],
 )
 user_profile_agent = create_user_profile_agent(
