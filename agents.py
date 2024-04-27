@@ -34,7 +34,6 @@ import functools
 from langchain.agents.agent_types import AgentType
 from langchain_experimental.agents.agent_toolkits import create_pandas_dataframe_agent
 from langchain.output_parsers.openai_functions import JsonOutputFunctionsParser
-from langchain.memory import ConversationBufferMemory
 
 ### GLOBALS
 global current_profile
@@ -49,12 +48,13 @@ system_prompt = (
     " task and respond with their results and status. When the result suits as the answer to the user,"
     " respond with FINISH."
 )
-with open("misc/conversation_prompts.json", 'r') as f:
+with open("data/conversation_prompts.json", 'r') as f:
     conversation_prompts = json.load(f)
 choose_prompt_prompt = "You are a helpful assistant whose main goal is to guide a user into buiyng an EV car from mercedes." + \
                         " Based on the current dialogue decide where to steer conversation next."
 choose_user_profile_prompt = "Given the user chat history and the description of different user profiles in a" + \
-                              " JSON format determine which one of the user profiles corresponds the best."
+                              " JSON format determine which one of the user profiles corresponds the best. If there is not enought infortmation choose The Unknown user."
+
 
 
 ### INIT
@@ -62,17 +62,12 @@ df = pd.read_csv(file_path)
 with open("key.txt", 'r') as f:
     os.environ["OPENAI_API_KEY"] = f.read()
 llm = ChatOpenAI(model=MODEL_NAME)
-with open("misc/user_types.json", 'r') as f:
+with open("data/user_types.json", 'r') as f:
     profiles = json.load(f)
 
 
 
 current_profile = list(profiles.values())[0]
-
-memory = ConversationBufferMemory(
-    return_messages=True, # Used to use message formats with the chat model
-    memory_key="chat_history",
-)
 
 
 ### Utilities functions
@@ -195,6 +190,7 @@ def continue_conversation():
 
 def agent_node(state, agent, name):
     state_key = state['profile'] if state['profile']  else list(profiles.keys())[random.randint(0, len(profiles)-1)]
+    print(profiles[state_key])
     current_profile = profiles[state_key]
     result = agent.invoke({'input': state} if name == 'retrieve' else state)
     if name == 'retrieve':
