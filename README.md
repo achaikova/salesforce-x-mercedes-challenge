@@ -1,2 +1,2 @@
 # salesforce-x-mercedes-challenge
-![Alt text](master.png)
+![Alt text](misc/master.png)
