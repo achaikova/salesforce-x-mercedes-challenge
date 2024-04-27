@@ -7,3 +7,4 @@ matplotlib
 langgraph
 langchain_core
 streamlit
+tabulate

@@ -164,7 +164,7 @@ def choose_prompt_for_conversation(
                 "conversation_direction": {
                     "title": "ConversationDirection",
                     "anyOf": [
-                        {"enum": list(conversation_prompts_description.keys())},
+                        {"enum": list(conversation_prompts.keys())},
                     ],
                 },
             },
@@ -180,7 +180,7 @@ def choose_prompt_for_conversation(
             ),
             MessagesPlaceholder(variable_name="messages")
         ]
-    ).partial(conversation_prompts_description=str(conversation_prompts_description))
+    ).partial(conversation_prompts_description=str(conversation_prompts))
 
     llm_with_function = (prompt | llm.bind_functions(functions=[function_def],
                                                      function_call="chooseConversationDirection") | JsonOutputFunctionsParser())
