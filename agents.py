@@ -111,6 +111,8 @@ memory = ConversationBufferMemory(
     memory_key="chat_history",
 )
 
+llm = ChatOpenAI(model="gpt-3.5-turbo-0125")
+
 ### Utilities functions
 
 def create_team_supervisor(llm, system_prompt, members) -> str:
@@ -146,9 +148,9 @@ def create_team_supervisor(llm, system_prompt, members) -> str:
         ]
     ).partial(options=str(options), team_members=", ".join(members))
     return (
-            prompt
-            | llm.bind_functions(functions=[function_def], function_call="route")
-            | JsonOutputFunctionsParser()
+        prompt
+        | llm.bind_functions(functions=[function_def], function_call="route")
+        | JsonOutputFunctionsParser()
     )
 
 def create_user_profile_agent(llm, profiles) -> str:
@@ -185,12 +187,10 @@ def create_user_profile_agent(llm, profiles) -> str:
         | llm.bind_functions(functions=[function_def], function_call="routeProfile")
         | JsonOutputFunctionsParser()
     )
-    print(res)
     return res
 
 
 def choose_prompt_for_conversation(
-        llm,
         # choose_prompt_prompt="choose the direction in which to steer the conversation"
 ):
     """Decides how to proceed with the conversation."""
@@ -211,7 +211,6 @@ def choose_prompt_for_conversation(
             "required": ["conversation_direction"],
         },
     }
-    print("initialized function")
     prompt = ChatPromptTemplate.from_messages(
         [
             (
@@ -220,7 +219,8 @@ def choose_prompt_for_conversation(
                 "\nPossible directions: {conversation_prompts_description}"
             ),
             ("user",
-             "Chat history: {chat_history}")
+             "Chat history: {chat_history}"),
+            MessagesPlaceholder(variable_name="messages")
         ]
     ).partial(conversation_prompts_description=str(conversation_prompts_description),
               chat_history=str(memory.load_memory_variables({})))
@@ -228,6 +228,18 @@ def choose_prompt_for_conversation(
     llm_with_function = (prompt | llm.bind_functions(functions=[function_def],
                                                      function_call="chooseConversationDirection") | JsonOutputFunctionsParser())
     return llm_with_function
+
+
+def continue_conversation():
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            MessagesPlaceholder(variable_name="conversation_direction"),
+            MessagesPlaceholder(variable_name="messages")
+        ]
+    )
+
+    res = (prompt | llm)
+    return res
 
 
 def create_agent(
@@ -257,20 +269,20 @@ def create_agent(
 
 def agent_node(state, agent, name):
     result = agent.invoke({'input': state} if name == 'retrieve' else state)
-    memory.save_context({"input": state['messages'][-1].content}, {"output": str(result["output"])})
-    return {"messages": [HumanMessage(content=result["output"], name=name)]}
-
+    if name == 'retrieval':
+      memory.save_context({"input": state['messages'][-1].content}, {"output": str(result["output"])})
+      return {"messages": [HumanMessage(content=result["output"], name=name)]}
+    elif name == 'conversation':
+      print(result.content)
+      memory.save_context({"input": state['messages'][-1].content}, {"output": str(result.content)})
+      return {"messages" : [HumanMessage(content=result.content, name=name)]}
+    elif name == 'conversation_prompt':
+      return {"conversation_direction" : [AIMessage(content=conversation_prompts[result['conversation_direction']], name=name)]}
 
 # Research team graph state
 class RetrieveTeamState(TypedDict):
-    # A message is added after each team member finishes
-    # chat_history: Annotated[List[BaseMessage], operator.add]
     messages: Annotated[List[BaseMessage], operator.add]
-    # The team members are tracked so they are aware of
-    # the others' skill-sets
     members: List[str]
-    # Used to route work. The supervisor calls a function
-    # that will update this every time it makes a decision
     next: str
     profile: str
     conversation_direction: str
@@ -287,9 +299,15 @@ user_profile_agent = create_user_profile_agent(
     profiles
 )
 
+prompts_for_conversation = ""
+# conversation_agent = create_agent(llm,
+#     tools=[choose_prompt_for_conversation],
+#     system_prompt=""
+# )
+conversation_prompt_agent = choose_prompt_for_conversation()
+conversation_agent = continue_conversation()
 
-conversation_agent = choose_prompt_for_conversation(llm)
-
+# Chart Generator
 retrieve_agent =  create_pandas_dataframe_agent(
     llm,
     df,
@@ -298,10 +316,15 @@ retrieve_agent =  create_pandas_dataframe_agent(
     # input_variables=["input", 'messages']
 )
 retrieve_node = functools.partial(agent_node, agent=retrieve_agent, name="retrieve")
+conversation_node = functools.partial(agent_node, agent=conversation_agent, name="conversation")
+conversation_prompt_node = functools.partial(agent_node, agent=conversation_prompt_agent, name="conversation_prompt")
+# conversation_node = functools.partial(agent_node, agent=conversation_agent, name="conversation")
+
 
 research_graph = StateGraph(RetrieveTeamState)
 research_graph.add_node("retrieve", retrieve_node)
-research_graph.add_node("conversation", conversation_agent)
+research_graph.add_node("conversation_prompt", conversation_prompt_node)
+research_graph.add_node("conversation", conversation_node)
 research_graph.add_node("supervisor", supervisor_agent)
 research_graph.add_node("user_profile", user_profile_agent)
 
@@ -310,10 +333,11 @@ research_graph.add_node("user_profile", user_profile_agent)
 research_graph.add_edge("user_profile", "supervisor")
 research_graph.add_edge("retrieve", "supervisor")
 research_graph.add_edge("conversation", "supervisor")
+research_graph.add_edge("conversation_prompt", "conversation")
 research_graph.add_conditional_edges(
     "supervisor",
     lambda x: x["next"],
-    {"retrieve_data_from_database": "retrieve", "FINISH": END, "initiate_a_conversation_with_a_client": "conversation"},
+    {"retrieve_data_from_database": "retrieve", "FINISH": END, "initiate_a_conversation_with_a_client": "conversation_prompt"},
 )
 
 
@@ -321,6 +345,9 @@ research_graph.set_entry_point("user_profile")
 chain = research_graph.compile()
 
 
+# The following functions interoperate between the top level graph state
+# and the state of the research sub-graph
+# this makes it so that the states of each graph don't get intermixed
 # The following functions interoperate between the top level graph state
 # and the state of the research sub-graph
 # this makes it so that the states of each graph don't get intermixed
