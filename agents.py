@@ -8,6 +8,7 @@ from langchain_core.messages import (
     FunctionMessage,
     HumanMessage,
 )
+import random
 from langchain.tools.render import format_tool_to_openai_function
 from langchain.agents import AgentExecutor, create_openai_functions_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -193,7 +194,8 @@ def continue_conversation():
 
 
 def agent_node(state, agent, name):
-    current_profile = profiles[state['profile']]
+    state_key = state['profile'] if state['profile']  else list(profiles.keys())[random.randint(0, len(profiles)-1)]
+    current_profile = profiles[state_key]
     result = agent.invoke({'input': state} if name == 'retrieve' else state)
     if name == 'retrieve':
         if len(state['messages']) > 0 and isinstance(state['messages'][-1], AIMessage):
