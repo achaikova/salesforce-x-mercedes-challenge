@@ -48,6 +48,7 @@ system_prompt = (
     " task and respond with their results and status. When the result suits as the answer to the user,"
     " respond with FINISH."
 )
+# a lot of prompts in this file!!!!
 with open("data/conversation_prompts.json", 'r') as f:
     conversation_prompts = json.load(f)
 choose_prompt_prompt = "You are a helpful assistant whose main goal is to guide a user into buiyng an EV car from mercedes." + \
