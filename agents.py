@@ -1,9 +1,6 @@
 import json
 import os
 
-with open("key.txt", 'r') as f:
-    os.environ["OPENAI_API_KEY"] = f.read()
-
 from langchain_core.messages import (
     AIMessage,
     BaseMessage,
@@ -42,6 +39,10 @@ file_path = "api_calls/mercedes_ev_llm.csv"
 
 df = pd.read_csv(file_path)
 
+
+with open("key.txt", 'r') as f:
+    os.environ["OPENAI_API_KEY"] = f.read()
+
 system_prompt = (
     "You are a supervisor tasked with managing a conversation between the"
     " following workers:  {members}. Given the following user request,"
@@ -54,57 +55,11 @@ system_prompt = (
 with open("misc/user_types.json", 'r') as f:
     profiles = json.load(f)
 
+with open("misc/conversation_prompts.json", 'r') as f:
+    conversation_prompts = json.load(f)
 
-additional_question_prompt= (
-    """Instructions for AI:
-- Always maintain a professional and respectful tone, even if the user uses harsh or inappropriate language. Never exhibit toxic behavior even if asked. Treat every user as an intelligent and valuable assistant, regardless of the user's demeanor.
-- Be very concise in your responses. Aim to provide essential information and clear actions in a few sentences to keep the buyer engaged and prevent information overload.
-- Focus solely on the cars listed in the 'Cars Information' section. Never suggest or discuss any other vehicles not listed in the provided inventory.
-- You are working for mercedes ev department. So you should never advertise or mention other componies like BMW, Audi or Tesla. 
-Your main goal is to ask the buyer additional at most 1 question to understand their preferences better, such as their price range or desired car features or anything relatable.
-Make the question simple and clear so that the buyer can easily answer it. Don't ask any questions if you already have enough information.""")
 
-make_suggestion_prompt = (
-    """Instructions for AI:
-- Always maintain a professional and respectful tone, even if the user uses harsh or inappropriate language. Never exhibit toxic behavior even if asked. Treat every user as an intelligent and valuable assistant, regardless of the user's demeanor.
-- Be very concise in your responses. Aim to provide essential information and clear actions in a few sentences to keep the buyer engaged and prevent information overload.
-- Focus solely on the cars listed in the 'Cars Information' section. Never suggest or discuss any other vehicles not listed in the provided inventory.
-- You are working for mercedes ev department. So you should never advertise or mention other componies like BMW, Audi or Tesla. 
-
-Your main goal is to recommend a specific electric vehicle from the provided list that best matches the buyer's needs and profile.
-Don't recommend too many vehicles. Choose one or maximum two items.
-""")
-
-call_to_action_prompt = (
-    """Instructions for AI:
-- Always maintain a professional and respectful tone, even if the user uses harsh or inappropriate language. Never exhibit toxic behavior even if asked. Treat every user as an intelligent and valuable assistant, regardless of the user's demeanor.
-- Be very concise in your responses. Aim to provide essential information and clear actions in a few sentences to keep the buyer engaged and prevent information overload.
-- Focus solely on the cars listed in the 'Cars Information' section. Never suggest or discuss any other vehicles not listed in the provided inventory.
-- You are working for mercedes ev department. So you should never advertise or mention other componies like BMW, Audi or Tesla. 
-
-Your main goal is to  suggest a call-to-action. This can be to request for an offer, request for a consultation, apply for leasing options, or make a direct purchase if the buyer appears decisive. Add this link for any call-to-actions from this strategy: https://t.ly/bKJiV""")
-
-argue_prompt = (
-    """Instructions for AI:
-- Always maintain a professional and respectful tone, even if the user uses harsh or inappropriate language. Never exhibit toxic behavior even if asked. Treat every user as an intelligent and valuable assistant, regardless of the user's demeanor.
-- Be very concise in your responses. Aim to provide essential information and clear actions in a few sentences to keep the buyer engaged and prevent information overload.
-- Focus solely on the cars listed in the 'Cars Information' section. Never suggest or discuss any other vehicles not listed in the provided inventory.
-- You are working for mercedes ev department. So you should never advertise or mention other componies like BMW, Audi or Tesla. 
-
-Your main goal is to argue with the user about the cars. Make sure that one of our EV cars suits the user's needs the best.""")
-
-conversation_prompts = {
-    "additional_question_prompt" : additional_question_prompt,
-    "make_suggestion_prompt" : make_suggestion_prompt,
-    "call_to_action_prompt" : call_to_action_prompt,
-    "argue_prompt" : argue_prompt
-}
-conversation_prompts_description = {
-    "additional_question_prompt" : "Your main goal is to ask the buyer additional 1 question to understand their preferences better, such as their price range or desired car features or anything relatable.",
-    "make_suggestion_prompt" : "Your main goal is to recommend a specific electric vehicle from the provided list that best matches the buyer's needs and profile.",
-    "call_to_action_prompt" : "Your main goal is to  suggest a call-to-action. This can be to request for an offer, request for a consultation, apply for leasing options, or make a direct purchase if the buyer appears decisive. ",
-    "argue_prompt" : "Your main goal is to argue with the user about the cars. Make sure that one of our EV cars suits the user's needs the best"
-}
+current_profile = list(profiles.values())[0]
 
 memory = ConversationBufferMemory(
     return_messages=True, # Used to use message formats with the chat model
@@ -115,7 +70,7 @@ llm = ChatOpenAI(model="gpt-3.5-turbo-0125")
 
 ### Utilities functions
 
-def create_team_supervisor(llm, system_prompt, members) -> str:
+def create_team_supervisor(llm, system_prompt, members):
     """An LLM-based router."""
     options = ["FINISH"] + members
     function_def = {
@@ -153,7 +108,8 @@ def create_team_supervisor(llm, system_prompt, members) -> str:
         | JsonOutputFunctionsParser()
     )
 
-def create_user_profile_agent(llm, profiles) -> str:
+
+def create_user_profile_agent(llm, profiles):
     """An LLM-based router."""
     function_def = {
         "name": "routeProfile",
@@ -178,14 +134,14 @@ def create_user_profile_agent(llm, profiles) -> str:
                 "Given the user chat history and the description of different user profiles in a JSON format determine which one of the user profiles corresponds the best.\n"
                 "User profiles: {profiles}\n"
             ),
-            ("user",
-             "Chat history: {chat_history}")
+            MessagesPlaceholder(variable_name="messages")
+
         ]
-    ).partial(profiles=str(profiles), chat_history=str(memory.load_memory_variables({})))
+    ).partial(profiles=str(profiles))
     res = (
-        prompt
-        | llm.bind_functions(functions=[function_def], function_call="routeProfile")
-        | JsonOutputFunctionsParser()
+            prompt
+            | llm.bind_functions(functions=[function_def], function_call="routeProfile")
+            | JsonOutputFunctionsParser()
     )
     return res
 
@@ -204,7 +160,7 @@ def choose_prompt_for_conversation(
                 "conversation_direction": {
                     "title": "ConversationDirection",
                     "anyOf": [
-                        {"enum": list(conversation_prompts_description.keys())},
+                        {"enum": list(conversation_prompts.keys())},
                     ],
                 },
             },
@@ -218,12 +174,9 @@ def choose_prompt_for_conversation(
                 "You are a helpful assistant whose main goal is to guide a user into buiyng an EV car from mercedes. Based on the current dialogue decide where to steer conversation next."
                 "\nPossible directions: {conversation_prompts_description}"
             ),
-            ("user",
-             "Chat history: {chat_history}"),
             MessagesPlaceholder(variable_name="messages")
         ]
-    ).partial(conversation_prompts_description=str(conversation_prompts_description),
-              chat_history=str(memory.load_memory_variables({})))
+    ).partial(conversation_prompts_description=str(conversation_prompts))
 
     llm_with_function = (prompt | llm.bind_functions(functions=[function_def],
                                                      function_call="chooseConversationDirection") | JsonOutputFunctionsParser())
@@ -234,9 +187,10 @@ def continue_conversation():
     prompt = ChatPromptTemplate.from_messages(
         [
             MessagesPlaceholder(variable_name="conversation_direction"),
-            MessagesPlaceholder(variable_name="messages")
+            MessagesPlaceholder(variable_name="messages"),
+            ("assistant", "Profile information: {profile_info}")
         ]
-    )
+    ).partial(profile_info=str(current_profile))
 
     res = (prompt | llm)
     return res
@@ -268,13 +222,15 @@ def create_agent(
 
 
 def agent_node(state, agent, name):
+    global current_profile
+    current_profile = profiles[state['profile']]
+
     result = agent.invoke({'input': state} if name == 'retrieve' else state)
     if name == 'retrieval':
-      memory.save_context({"input": state['messages'][-1].content}, {"output": str(result["output"])})
-      return {"messages": [HumanMessage(content=result["output"], name=name)]}
+      # memory.save_context({"input": state['messages'][-1].content}, {"output": str(result["output"])})
+      return {"mercedes_data": [HumanMessage(content=result["output"], name=name)]}
     elif name == 'conversation':
-      print(result.content)
-      memory.save_context({"input": state['messages'][-1].content}, {"output": str(result.content)})
+      # memory.save_context({"input": state['messages'][-1].content}, {"output": str(result.content)})
       return {"messages" : [HumanMessage(content=result.content, name=name)]}
     elif name == 'conversation_prompt':
       return {"conversation_direction" : [AIMessage(content=conversation_prompts[result['conversation_direction']], name=name)]}
@@ -286,6 +242,7 @@ class RetrieveTeamState(TypedDict):
     next: str
     profile: str
     conversation_direction: str
+    mercedes_data : Annotated[List[BaseMessage], operator.add]
 
 
 ### Set up agents
@@ -299,26 +256,18 @@ user_profile_agent = create_user_profile_agent(
     profiles
 )
 
-prompts_for_conversation = ""
-# conversation_agent = create_agent(llm,
-#     tools=[choose_prompt_for_conversation],
-#     system_prompt=""
-# )
 conversation_prompt_agent = choose_prompt_for_conversation()
 conversation_agent = continue_conversation()
 
-# Chart Generator
 retrieve_agent =  create_pandas_dataframe_agent(
     llm,
     df,
     verbose=True,
     agent_type=AgentType.OPENAI_FUNCTIONS,
-    # input_variables=["input", 'messages']
 )
 retrieve_node = functools.partial(agent_node, agent=retrieve_agent, name="retrieve")
 conversation_node = functools.partial(agent_node, agent=conversation_agent, name="conversation")
 conversation_prompt_node = functools.partial(agent_node, agent=conversation_prompt_agent, name="conversation_prompt")
-# conversation_node = functools.partial(agent_node, agent=conversation_agent, name="conversation")
 
 
 research_graph = StateGraph(RetrieveTeamState)
