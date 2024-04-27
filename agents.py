@@ -38,7 +38,7 @@ from langchain_experimental.agents.agent_toolkits import create_pandas_dataframe
 from langchain.output_parsers.openai_functions import JsonOutputFunctionsParser
 from langchain.memory import ConversationBufferMemory
 
-file_path = "data/Example Vehicle Export-TUM.csv"
+file_path = "api_calls/mercedes_ev_llm.csv"
 
 df = pd.read_csv(file_path)
 
