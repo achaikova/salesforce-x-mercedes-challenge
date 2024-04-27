@@ -35,28 +35,35 @@ from langchain_experimental.agents.agent_toolkits import create_pandas_dataframe
 from langchain.output_parsers.openai_functions import JsonOutputFunctionsParser
 from langchain.memory import ConversationBufferMemory
 
+### GLOBALS
+global current_profile
+### CONSTS
 file_path = "api_calls/mercedes_ev_llm.csv"
-
-df = pd.read_csv(file_path)
-
-
-with open("key.txt", 'r') as f:
-    os.environ["OPENAI_API_KEY"] = f.read()
-
+MODEL_NAME = "gpt-3.5-turbo-0125"
+### PROMPTS
 system_prompt = (
     "You are a supervisor tasked with managing a conversation between the"
-    " following workers:  {members}. Given the following user request,"
+    " following workers: {members}. Given the following user request,"
     " respond with the worker to act next. Each worker will perform a"
-    " task and respond with their results and status. When finished,"
+    " task and respond with their results and status. When the result suits as the answer to the user,"
     " respond with FINISH."
 )
+with open("misc/conversation_prompts.json", 'r') as f:
+    conversation_prompts = json.load(f)
+choose_prompt_prompt = "You are a helpful assistant whose main goal is to guide a user into buiyng an EV car from mercedes." + \
+                        " Based on the current dialogue decide where to steer conversation next."
+choose_user_profile_prompt = "Given the user chat history and the description of different user profiles in a" + \
+                              " JSON format determine which one of the user profiles corresponds the best."
 
 
+### INIT
+df = pd.read_csv(file_path)
+with open("key.txt", 'r') as f:
+    os.environ["OPENAI_API_KEY"] = f.read()
+llm = ChatOpenAI(model=MODEL_NAME)
 with open("misc/user_types.json", 'r') as f:
     profiles = json.load(f)
 
-with open("misc/conversation_prompts.json", 'r') as f:
-    conversation_prompts = json.load(f)
 
 
 current_profile = list(profiles.values())[0]
@@ -66,10 +73,8 @@ memory = ConversationBufferMemory(
     memory_key="chat_history",
 )
 
-llm = ChatOpenAI(model="gpt-3.5-turbo-0125")
 
 ### Utilities functions
-
 def create_team_supervisor(llm, system_prompt, members):
     """An LLM-based router."""
     options = ["FINISH"] + members
@@ -93,7 +98,6 @@ def create_team_supervisor(llm, system_prompt, members):
     prompt = ChatPromptTemplate.from_messages(
         [
             ("system", system_prompt),
-            # ("assistant", f"Retrieval result: {mercedes_data}")
             MessagesPlaceholder(variable_name="messages"),
             (
                 "system",
@@ -108,9 +112,8 @@ def create_team_supervisor(llm, system_prompt, members):
         | JsonOutputFunctionsParser()
     )
 
-
 def create_user_profile_agent(llm, profiles):
-    """An LLM-based router."""
+    """An LLM-based profile chooser. Chooses the best fitting profile based on the user's messages and the profiles."""
     function_def = {
         "name": "routeProfile",
         "description": "Match the user messages to their profile.",
@@ -131,30 +134,20 @@ def create_user_profile_agent(llm, profiles):
         [
             (
                 "system",
-                "Given the user chat history and the description of different user profiles in a JSON format determine which one of the user profiles corresponds the best.\n"
-                "User profiles: {profiles}\n"
+                choose_user_profile_prompt + "\nUser profiles: {profiles}\n"
             ),
             MessagesPlaceholder(variable_name="messages")
-
         ]
     ).partial(profiles=str(profiles))
-    # llm_with_function = llm.bind_functions(functions=[function_def], function_call="routeProfile")
-    # profile = eval(llm_with_function.invoke(prompt).additional_kwargs['function_call']['arguments'])['profile']
     res = (
             prompt
             | llm.bind_functions(functions=[function_def], function_call="routeProfile")
             | JsonOutputFunctionsParser()
     )
-    # res = {key.replace(' ', '_') : profiles[profile][key] for key in list(profiles[profile].keys())}
-    # print(res)
     return res
 
-
-def choose_prompt_for_conversation(
-        # choose_prompt_prompt="choose the direction in which to steer the conversation"
-):
-    """Decides how to proceed with the conversation."""
-
+def choose_prompt_for_conversation():
+    """Decides how to proceed with the conversation. Chooses the best approach based on the dialog and user profile."""
     function_def = {
         "name": "chooseConversationDirection",
         "description": "Select where to steer the conversation based on the dialogue.",
@@ -175,8 +168,7 @@ def choose_prompt_for_conversation(
         [
             (
                 "system",
-                "You are a helpful assistant whose main goal is to guide a user into buiyng an EV car from mercedes. Based on the current dialogue decide where to steer conversation next."
-                "\nPossible directions: {conversation_prompts_description}"
+                choose_prompt_prompt + "\nPossible directions: {conversation_prompts_description}"
             ),
             MessagesPlaceholder(variable_name="messages")
         ]
@@ -190,8 +182,8 @@ def choose_prompt_for_conversation(
 def continue_conversation():
     prompt = ChatPromptTemplate.from_messages(
         [
-            MessagesPlaceholder(variable_name="conversation_direction"),
             MessagesPlaceholder(variable_name="messages"),
+            MessagesPlaceholder(variable_name="conversation_direction"),
             ("assistant", "Profile information: {profile_info}")
         ]
     ).partial(profile_info=str(current_profile))
@@ -200,50 +192,21 @@ def continue_conversation():
     return res
 
 
-def create_agent(
-        llm,
-        tools: list,
-        system_prompt: str,
-) -> str:
-    """Create a function-calling agent and add it to the graph."""
-    system_prompt += "\nWork autonomously according to your specialty, using the tools available to you."
-    " Do not ask for clarification."
-    " Your other team members (and other teams) will collaborate with you with their own specialties."
-    " You are chosen for a reason! You are one of the following team members: {team_members}."
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            (
-                "system",
-                system_prompt,
-            ),
-            MessagesPlaceholder(variable_name="messages"),
-            MessagesPlaceholder(variable_name="agent_scratchpad"),
-        ]
-    )
-    agent = create_openai_functions_agent(llm, tools, prompt)
-    executor = AgentExecutor(agent=agent, tools=tools)
-    return executor
-
-
 def agent_node(state, agent, name):
-    global current_profile, mercedes_data
     current_profile = profiles[state['profile']]
     result = agent.invoke({'input': state} if name == 'retrieve' else state)
     if name == 'retrieve':
-      # memory.save_context({"input": state['messages'][-1].content}, {"output": str(result["output"])})
-      mercedes_data = result["output"]
-      if len(state['messages']) > 0 and isinstance(state['messages'][-1], AIMessage):
-        state['messages'] = state['messages'][:-1]
-      return {"messages": state['messages'] + [AIMessage(content=result["output"], name=name)]}
+        if len(state['messages']) > 0 and isinstance(state['messages'][-1], AIMessage):
+            state['messages'] = state['messages'][:-1]
+        return {"messages": state['messages'] + [AIMessage(content=result["output"], name=name)]}
     elif name == 'conversation':
-      # memory.save_context({"input": state['messages'][-1].content}, {"output": str(result.content)})
-      if len(state['messages']) > 0 and isinstance(state['messages'][-1], AIMessage):
-        state['messages'] = state['messages'][:-1]
-      return {"messages" : [AIMessage(content=result.content, name=name)]}
+        if len(state['messages']) > 0 and isinstance(state['messages'][-1], AIMessage):
+            state['messages'] = state['messages'][:-1]
+        return {"messages" : [AIMessage(content=result.content, name=name)]}
     elif name == 'conversation_prompt':
-      if len(state['messages']) > 0 and isinstance(state['messages'][-1], AIMessage):
-        state['messages'] = state['messages'][:-1]
-      return {"conversation_direction" : [AIMessage(content=conversation_prompts[result['conversation_direction']], name=name)]}
+        if len(state['messages']) > 0 and isinstance(state['messages'][-1], AIMessage):
+            state['messages'] = state['messages'][:-1]
+        return {"conversation_direction" : [AIMessage(content=conversation_prompts[result['conversation_direction']], name=name)]}
 
 # Research team graph state
 class RetrieveTeamState(TypedDict):
@@ -252,13 +215,12 @@ class RetrieveTeamState(TypedDict):
     next: str
     profile: str
     conversation_direction: str
-    mercedes_data : Annotated[List[BaseMessage], operator.add]
 
 
 ### Set up agents
 supervisor_agent = create_team_supervisor(
     llm,
-    system_prompt, ##todo: change prompt
+    system_prompt, ## todo: check prompt. i think this is correct?
     ["retrieve_data_from_database", 'initiate_a_conversation_with_a_client'],
 )
 user_profile_agent = create_user_profile_agent(
@@ -276,16 +238,16 @@ retrieve_agent =  create_pandas_dataframe_agent(
     agent_type=AgentType.OPENAI_FUNCTIONS,
 )
 retrieve_node = functools.partial(agent_node, agent=retrieve_agent, name="retrieve")
-conversation_node = functools.partial(agent_node, agent=conversation_agent, name="conversation")
 conversation_prompt_node = functools.partial(agent_node, agent=conversation_prompt_agent, name="conversation_prompt")
+conversation_node = functools.partial(agent_node, agent=conversation_agent, name="conversation")
 
 
 research_graph = StateGraph(RetrieveTeamState)
+research_graph.add_node("user_profile", user_profile_agent)
+research_graph.add_node("supervisor", supervisor_agent)
 research_graph.add_node("retrieve", retrieve_node)
 research_graph.add_node("conversation_prompt", conversation_prompt_node)
 research_graph.add_node("conversation", conversation_node)
-research_graph.add_node("supervisor", supervisor_agent)
-research_graph.add_node("user_profile", user_profile_agent)
 
 
 # Define the control flow
@@ -296,7 +258,7 @@ research_graph.add_edge("conversation_prompt", "conversation")
 research_graph.add_conditional_edges(
     "supervisor",
     lambda x: x["next"],
-    {"retrieve_data_from_database": "retrieve", "FINISH": END, "initiate_a_conversation_with_a_client": "conversation_prompt"},
+    {"retrieve_data_from_database": "retrieve", "initiate_a_conversation_with_a_client": "conversation_prompt", "FINISH": END},
 )
 
 
