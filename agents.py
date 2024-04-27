@@ -93,7 +93,7 @@ def create_team_supervisor(llm, system_prompt, members):
     prompt = ChatPromptTemplate.from_messages(
         [
             ("system", system_prompt),
-            # MessagesPlaceholder(variable_name="chat_history"),
+            # ("assistant", f"Retrieval result: {mercedes_data}")
             MessagesPlaceholder(variable_name="messages"),
             (
                 "system",
@@ -138,11 +138,15 @@ def create_user_profile_agent(llm, profiles):
 
         ]
     ).partial(profiles=str(profiles))
+    # llm_with_function = llm.bind_functions(functions=[function_def], function_call="routeProfile")
+    # profile = eval(llm_with_function.invoke(prompt).additional_kwargs['function_call']['arguments'])['profile']
     res = (
             prompt
             | llm.bind_functions(functions=[function_def], function_call="routeProfile")
             | JsonOutputFunctionsParser()
     )
+    # res = {key.replace(' ', '_') : profiles[profile][key] for key in list(profiles[profile].keys())}
+    # print(res)
     return res
 
 
@@ -160,7 +164,7 @@ def choose_prompt_for_conversation(
                 "conversation_direction": {
                     "title": "ConversationDirection",
                     "anyOf": [
-                        {"enum": list(conversation_prompts.keys())},
+                        {"enum": list(conversation_prompts_description.keys())},
                     ],
                 },
             },
@@ -176,7 +180,7 @@ def choose_prompt_for_conversation(
             ),
             MessagesPlaceholder(variable_name="messages")
         ]
-    ).partial(conversation_prompts_description=str(conversation_prompts))
+    ).partial(conversation_prompts_description=str(conversation_prompts_description))
 
     llm_with_function = (prompt | llm.bind_functions(functions=[function_def],
                                                      function_call="chooseConversationDirection") | JsonOutputFunctionsParser())
@@ -222,17 +226,23 @@ def create_agent(
 
 
 def agent_node(state, agent, name):
-    global current_profile
+    global current_profile, mercedes_data
     current_profile = profiles[state['profile']]
-
     result = agent.invoke({'input': state} if name == 'retrieve' else state)
-    if name == 'retrieval':
+    if name == 'retrieve':
       # memory.save_context({"input": state['messages'][-1].content}, {"output": str(result["output"])})
-      return {"mercedes_data": [HumanMessage(content=result["output"], name=name)]}
+      mercedes_data = result["output"]
+      if len(state['messages']) > 0 and isinstance(state['messages'][-1], AIMessage):
+        state['messages'] = state['messages'][:-1]
+      return {"messages": state['messages'] + [AIMessage(content=result["output"], name=name)]}
     elif name == 'conversation':
       # memory.save_context({"input": state['messages'][-1].content}, {"output": str(result.content)})
-      return {"messages" : [HumanMessage(content=result.content, name=name)]}
+      if len(state['messages']) > 0 and isinstance(state['messages'][-1], AIMessage):
+        state['messages'] = state['messages'][:-1]
+      return {"messages" : [AIMessage(content=result.content, name=name)]}
     elif name == 'conversation_prompt':
+      if len(state['messages']) > 0 and isinstance(state['messages'][-1], AIMessage):
+        state['messages'] = state['messages'][:-1]
       return {"conversation_direction" : [AIMessage(content=conversation_prompts[result['conversation_direction']], name=name)]}
 
 # Research team graph state
