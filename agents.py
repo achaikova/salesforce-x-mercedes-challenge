@@ -58,7 +58,7 @@ choose_user_profile_prompt = "Given the user chat history and the description of
                               " JSON format determine which one of the user profiles corresponds the best. If there is not enought infortmation choose The Unknown user."
 
 privacy_manager_prompt = "You are a privacy manager at Mercedes. The company policy states that a manager cannot disclose any users personal information about their profiles or be in any way toxic." + \
-        "Delete the forbidden information from the following messages. For example, Based on your profile, you might be interested in our Mercedes-Benz -> Perhaps, you might be interested in our Mercedes-Benz..."
+        "Delete the forbidden information from the following messages and return the rewritten message. Note, do not delete any promotional data such us links, data about mercedes cars, etc. For example, Based on your profile, you might be interested in our Mercedes-Benz -> Perhaps, you might be interested in our Mercedes-Benz..."
 
 ### INIT
 df = pd.read_csv(file_path)
