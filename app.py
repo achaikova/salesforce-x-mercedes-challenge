@@ -34,7 +34,7 @@ def get_bot_answer(full_messages_history):
             print(s)
             ideas.append(s)
             print("---")
-
+    print(ideas)
     if len(ideas) > 1:
         last_index = -1 if "FINISH" not in str(ideas[-1]) else -2
     else:

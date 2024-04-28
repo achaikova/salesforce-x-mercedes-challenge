@@ -188,24 +188,38 @@ def continue_conversation():
     res = (prompt | llm)
     return res
 
+def create_privacy_agent():
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", "You are a privacy manager at Mercedes. The company policy states that a manager cannot disclose any personal information, share any inner company information about user profiles or be in any way toxic. Rephrase the following messages to omit the forbidden information. For example, Based on your profile, you might be interested in our Mercedes-Benz -> Perhaps, you might be interested in our Mercedes-Benz..."),
+            MessagesPlaceholder(variable_name="messages"),
+        ]
+    ).partial(profile_info=str(current_profile))
+
+    res = (prompt | llm)
+    return res
+
 
 def agent_node(state, agent, name):
     state_key = state['profile'] if state['profile']  else list(profiles.keys())[random.randint(0, len(profiles)-1)]
-    print(profiles[state_key])
     current_profile = profiles[state_key]
     result = agent.invoke({'input': state} if name == 'retrieve' else state)
     if name == 'retrieve':
-        if len(state['messages']) > 0 and isinstance(state['messages'][-1], AIMessage):
-            state['messages'] = state['messages'][:-1]
+        # if len(state['messages']) > 0 and isinstance(state['messages'][-1], AIMessage):
+        #     state['messages'] = state['messages'][:-1]
         return {"messages": state['messages'] + [AIMessage(content=result["output"], name=name)]}
     elif name == 'conversation':
-        if len(state['messages']) > 0 and isinstance(state['messages'][-1], AIMessage):
-            state['messages'] = state['messages'][:-1]
+        # if len(state['messages']) > 0 and isinstance(state['messages'][-1], AIMessage):
+        #     state['messages'] = state['messages'][:-1]
         return {"messages" : [AIMessage(content=result.content, name=name)]}
     elif name == 'conversation_prompt':
-        if len(state['messages']) > 0 and isinstance(state['messages'][-1], AIMessage):
-            state['messages'] = state['messages'][:-1]
+        # if len(state['messages']) > 0 and isinstance(state['messages'][-1], AIMessage):
+        #     state['messages'] = state['messages'][:-1]
         return {"conversation_direction" : [AIMessage(content=conversation_prompts[result['conversation_direction']], name=name)]}
+    elif name == "privacy_manager" :
+        # if len(state['messages']) > 0 and isinstance(state['messages'][-1], AIMessage):
+        #     state['messages'] = state['messages'][:-1]
+        return {"messages": [AIMessage(content=result.content, name=name)]}
 
 # Research team graph state
 class RetrieveTeamState(TypedDict):
@@ -229,6 +243,7 @@ user_profile_agent = create_user_profile_agent(
 
 conversation_prompt_agent = choose_prompt_for_conversation()
 conversation_agent = continue_conversation()
+privacy_manager_agent = create_privacy_agent()
 
 retrieve_agent =  create_pandas_dataframe_agent(
     llm,
@@ -239,6 +254,7 @@ retrieve_agent =  create_pandas_dataframe_agent(
 retrieve_node = functools.partial(agent_node, agent=retrieve_agent, name="retrieve")
 conversation_prompt_node = functools.partial(agent_node, agent=conversation_prompt_agent, name="conversation_prompt")
 conversation_node = functools.partial(agent_node, agent=conversation_agent, name="conversation")
+privacy_manager_node = functools.partial(agent_node, agent=privacy_manager_agent, name="privacy_manager")
 
 
 research_graph = StateGraph(RetrieveTeamState)
@@ -247,6 +263,7 @@ research_graph.add_node("supervisor", supervisor_agent)
 research_graph.add_node("retrieve", retrieve_node)
 research_graph.add_node("conversation_prompt", conversation_prompt_node)
 research_graph.add_node("conversation", conversation_node)
+research_graph.add_node("privacy_manager", privacy_manager_node)
 
 
 # Define the control flow
@@ -254,10 +271,11 @@ research_graph.add_edge("user_profile", "supervisor")
 research_graph.add_edge("retrieve", "supervisor")
 research_graph.add_edge("conversation", "supervisor")
 research_graph.add_edge("conversation_prompt", "conversation")
+research_graph.add_edge("privacy_manager", END)
 research_graph.add_conditional_edges(
     "supervisor",
     lambda x: x["next"],
-    {"retrieve_data_from_database": "retrieve", "initiate_a_conversation_with_a_client": "conversation_prompt", "FINISH": END},
+    {"retrieve_data_from_database": "retrieve", "initiate_a_conversation_with_a_client": "conversation_prompt", "FINISH": "privacy_manager"},
 )
 
 
