@@ -39,7 +39,7 @@ from langchain.output_parsers.openai_functions import JsonOutputFunctionsParser
 global current_profile
 ### CONSTS
 file_path = "api_calls/mercedes_ev_llm.csv"
-MODEL_NAME = "gpt-3.5-turbo-0125"
+MODEL_NAME = "gpt-3.5-turbo"
 ### PROMPTS
 system_prompt = (
     "You are a supervisor tasked with managing a conversation between the"
@@ -56,7 +56,8 @@ choose_prompt_prompt = "You are a helpful assistant whose main goal is to guide 
 choose_user_profile_prompt = "Given the user chat history and the description of different user profiles in a" + \
                               " JSON format determine which one of the user profiles corresponds the best. If there is not enought infortmation choose The Unknown user."
 
-
+privacy_manager_prompt = "You are a privacy manager at Mercedes. The company policy states that a manager cannot disclose any users personal information about their profiles or be in any way toxic." + \
+        "Rephrase the following messages to omit the mentioned forbidden information. For example, Based on your profile, you might be interested in our Mercedes-Benz -> Perhaps, you might be interested in our Mercedes-Benz..."
 
 ### INIT
 df = pd.read_csv(file_path)
@@ -191,8 +192,8 @@ def continue_conversation():
 def create_privacy_agent():
     prompt = ChatPromptTemplate.from_messages(
         [
-            ("system", "You are a privacy manager at Mercedes. The company policy states that a manager cannot disclose any personal information, share any inner company information about user profiles or be in any way toxic. Rephrase the following messages to omit the forbidden information. For example, Based on your profile, you might be interested in our Mercedes-Benz -> Perhaps, you might be interested in our Mercedes-Benz..."),
             MessagesPlaceholder(variable_name="messages"),
+            ("system", privacy_manager_prompt)
         ]
     ).partial(profile_info=str(current_profile))
 
