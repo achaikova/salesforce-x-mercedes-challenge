@@ -34,6 +34,7 @@ import functools
 from langchain.agents.agent_types import AgentType
 from langchain_experimental.agents.agent_toolkits import create_pandas_dataframe_agent
 from langchain.output_parsers.openai_functions import JsonOutputFunctionsParser
+import streamlit as st
 
 ### GLOBALS
 global current_profile
@@ -57,12 +58,13 @@ choose_user_profile_prompt = "Given the user chat history and the description of
                               " JSON format determine which one of the user profiles corresponds the best. If there is not enought infortmation choose The Unknown user."
 
 privacy_manager_prompt = "You are a privacy manager at Mercedes. The company policy states that a manager cannot disclose any users personal information about their profiles or be in any way toxic." + \
-        "Rephrase the following messages to omit the mentioned forbidden information. For example, Based on your profile, you might be interested in our Mercedes-Benz -> Perhaps, you might be interested in our Mercedes-Benz..."
+        "Delete the forbidden information from the following messages. For example, Based on your profile, you might be interested in our Mercedes-Benz -> Perhaps, you might be interested in our Mercedes-Benz..."
 
 ### INIT
 df = pd.read_csv(file_path)
-with open("key.txt", 'r') as f:
-    os.environ["OPENAI_API_KEY"] = f.read()
+# with open("key.txt", 'r') as f:
+#     os.environ["OPENAI_API_KEY"] = f.read()
+os.environ["OPENAI_API_KEY"]  = st.secrets["OPENAI_API_KEY"]
 llm = ChatOpenAI(model=MODEL_NAME)
 with open("data/user_types.json", 'r') as f:
     profiles = json.load(f)
@@ -208,7 +210,7 @@ def agent_node(state, agent, name):
     if name == 'retrieve':
         # if len(state['messages']) > 0 and isinstance(state['messages'][-1], AIMessage):
         #     state['messages'] = state['messages'][:-1]
-        return {"messages": state['messages'] + [AIMessage(content=result["output"], name=name)]}
+        return {"messages": [AIMessage(content=result["output"], name=name)]}
     elif name == 'conversation':
         # if len(state['messages']) > 0 and isinstance(state['messages'][-1], AIMessage):
         #     state['messages'] = state['messages'][:-1]
